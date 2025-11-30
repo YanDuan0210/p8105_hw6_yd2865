@@ -1,0 +1,146 @@
+---
+title: "p8105_hw6_yd2865"
+author: "Yan Duan"
+date: "2025-11-29"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)  
+library(broom)     
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+
+```
+
+I'm an R Markdown document! 
+
+
+## Problem 1
+
+```{r}
+homicide_data = read_csv("./homicide-data.csv")
+```
+
+#### (1)
+
+```{r}
+# tidy the dataset
+homicides_clean =
+  homicide_data |>
+  mutate(
+    city_state = str_c(city, state, sep = ", "),
+    solved = if_else(disposition == "Closed by arrest", 1L, 0L),
+    victim_age = na_if(victim_age, "Unknown"),
+    victim_age = as.numeric(victim_age)) |>
+  filter(!city_state %in% c(
+      "Dallas, TX",
+      "Phoenix, AZ",
+      "Kansas City, MO",
+      "Tulsa, AL"
+    )
+  ) |>
+  filter(victim_race %in% c("White", "Black")) |>
+  drop_na(solved, victim_age, victim_sex, victim_race)
+
+```
+
+#### (2)
+
+```{r}
+# Baltimore data only
+baltimore_df =
+  homicides_clean |>
+  filter(city_state == "Baltimore, MD")
+
+# use the glm function
+baltimore_glm =
+  glm(
+    solved ~ victim_age + victim_sex + victim_race,
+    data   = baltimore_df,
+    family = binomial)
+
+# OR + CI for male vs. female
+baltimore_or =
+  broom::tidy(
+    baltimore_glm,
+    conf.int   = TRUE,
+    exponentiate = TRUE) |>
+  filter(term == "victim_sexMale") |>
+  select(estimate, conf.low, conf.high, p.value)
+
+baltimore_or
+```
+
+The estimate of the adjusted OR is **`r round(baltimore_or$estimate, 3)``** and the  confidence interval is (**`r round(baltimore_or$conf.low, 3)``**, **`r round(baltimore_or$conf.high, 3)``**)
+
+#### (3)
+
+```{r}
+# run glm for each of the cities 
+city_or =
+  homicides_clean |>
+  group_by(city_state) |>
+  nest() |>
+  mutate(
+    model = purrr::map(
+      data,
+      ~ suppressWarnings(
+          glm(
+            solved ~ victim_age + victim_sex + victim_race,
+            data   = .x,
+            family = binomial
+          )
+      )
+    ),
+    tidy = purrr::map(     # OR + CI
+      model,
+      ~ suppressWarnings(
+          broom::tidy(
+            .x,
+            conf.int = TRUE,
+            exponentiate = TRUE)
+      )
+    )
+  ) |>
+  select(city_state, tidy) |>
+  filter(!map_lgl(tidy, is.null)) |> 
+  unnest(tidy) |>
+  filter(term == "victim_sexMale") |>
+  mutate(
+    city_state = fct_inorder(city_state)
+  ) |> 
+  select(city_state, estimate, p.value, conf.low, conf.high)
+
+city_or
+```
+
+#### (4)
+```{r}
+# Create a plot shows the estimated ORs and CIs for each city
+ggplot(city_or,
+       aes(x = city_state, y = estimate)) +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  geom_point() +
+  geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high), width = 0
+  ) +
+  coord_flip() +
+  labs(
+    x = "City",
+    y = "Adjusted odds ratio (Male vs Female)",
+    title = "Adjusted ORs for solving homicides: male vs female victims"
+  )
+```
+
+The plot shows adjusted odds ratios for solving homicides (male vs female victims) by city, ordered from lowest to highest OR. In most cities the OR is below 1, meaning that, after adjusting for age and race, cases with male victims are less likely to be solved than cases with female victims. In several cities (for example Baltimore, Baton Rouge, Birmingham and a few others near the bottom of the plot), the entire 95% confidence interval falls below 1. Only a few cities have ORs near or above 1, and those estimates tend to have wide confidence intervals, so evidence of any advantage for male victims is weak.
