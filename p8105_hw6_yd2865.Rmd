@@ -82,7 +82,7 @@ baltimore_or =
 baltimore_or
 ```
 
-The estimate of the adjusted OR is **`r round(baltimore_or$estimate, 3)``** and the  confidence interval is (**`r round(baltimore_or$conf.low, 3)``**, **`r round(baltimore_or$conf.high, 3)``**)
+The estimate of the adjusted OR is **`r round(baltimore_or$estimate, 3)`** and the  confidence interval is (**`r round(baltimore_or$conf.low, 3)`**, **`r round(baltimore_or$conf.high, 3)`**)
 
 #### (3)
 
