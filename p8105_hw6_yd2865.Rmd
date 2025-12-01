@@ -67,14 +67,14 @@ baltimore_df =
 baltimore_glm =
   glm(
     solved ~ victim_age + victim_sex + victim_race,
-    data   = baltimore_df,
+    data  = baltimore_df,
     family = binomial)
 
 # OR + CI for male vs. female
 baltimore_or =
   broom::tidy(
     baltimore_glm,
-    conf.int   = TRUE,
+    conf.int  = TRUE,
     exponentiate = TRUE) |>
   filter(term == "victim_sexMale") |>
   select(estimate, conf.low, conf.high, p.value)
@@ -98,7 +98,7 @@ city_or =
       ~ suppressWarnings(
           glm(
             solved ~ victim_age + victim_sex + victim_race,
-            data   = .x,
+            data  = .x,
             family = binomial
           )
       )
@@ -144,3 +144,201 @@ ggplot(city_or,
 ```
 
 The plot shows adjusted odds ratios for solving homicides (male vs female victims) by city, ordered from lowest to highest OR. In most cities the OR is below 1, meaning that, after adjusting for age and race, cases with male victims are less likely to be solved than cases with female victims. In several cities (for example Baltimore, Baton Rouge, Birmingham and a few others near the bottom of the plot), the entire 95% confidence interval falls below 1. Only a few cities have ORs near or above 1, and those estimates tend to have wide confidence intervals, so evidence of any advantage for male victims is weak.
+
+
+## Problem 2
+
+```{r}
+library(p8105.datasets)
+data("weather_df")
+set.seed(123) 
+```
+
+```{r}
+# the function of bootstrap
+boostrap = function(df) {
+  
+  mod = lm(tmax ~ tmin + prcp, data = df)
+  r_sq = broom::glance(mod) |>
+    pull(r.squared)
+  
+  coef = broom::tidy(mod) |>
+    select(term, estimate)
+  
+  beta_1 = coef |> filter(term == "tmin") |> pull(estimate)
+  beta_2 = coef |> filter(term == "prcp") |> pull(estimate)
+  beta_ratio = beta_1 / beta_2
+  
+  tibble(
+    r_sq = r_sq,
+    beta_ratio = beta_ratio
+  )
+}
+
+```
+
+```{r}
+# Use 5000 bootstrap samples
+boot_results =
+  weather_df |>
+  modelr::bootstrap(n = 5000, id = "strap_id") |>
+  mutate(
+    estimates = map(strap, boostrap)
+  ) |>
+  unnest(estimates)
+```
+
+
+```{r}
+# Plot the distribution of r^2
+ggplot(boot_results, aes(x = r_sq)) +
+  geom_histogram(bins = 30) +
+  labs(
+    x = "R-squared",
+    y = "Count",
+    title = "Bootstrap distribution of R-squared"
+  )
+
+```
+
+The histogram is unimodal and roughly symmetric, centered around 0.94, with most values lying between about 0.93 and 0.95. This indicates that the goodness of fit of the linear model is very stable across bootstrap samples, with only small variability in R-squared. In other words, tmin and prcp together explain a very large proportion of the variability in tmax.
+
+```{r}
+# Plot the distribution of beta1 / beta2
+ggplot(boot_results, aes(x = beta_ratio)) +
+  geom_histogram(bins = 30) +
+  labs(
+    x = "beta1/ beta2",
+    y = "Count",
+    title = "Bootstrap distribution of beta1 / beta2"
+  )
+```
+
+The bootstrap distribution of b1/b2 is unimodal, much wider and clearly left-skewed. All values of the ratio are negative, with the bulk of the distribution concentrated around roughly −200, and a noticeable left tail extending toward more negative values. The fact that the ratio is consistently negative implies that tmin and prcp have effects on tmax in opposite directions: one coefficient is positive while the other is negative.
+
+
+```{r}
+# identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval
+ci_boot =
+  boot_results |>
+  summarise(
+    r_sq_lower = quantile(r_sq, 0.025),
+    r_sq_upper = quantile(r_sq, 0.975),
+    ratio_lower = quantile(beta_ratio, 0.025),
+    ratio_upper = quantile(beta_ratio, 0.975))
+
+ci_boot
+
+```
+
+For R_squared, the confidence interval is (**`r round(ci_boot$r_sq_lower, 3)`**, **`r round(ci_boot$r_sq_upper, 3)`**).
+
+For beta1/ beta2, the confidence interval is (**`r round(ci_boot$ratio_lower, 3)`**, **`r round(ci_boot$ratio_upper, 3)`**).
+
+
+## Problem 3
+
+```{r}
+# read data
+birthweight = read_csv("./birthweight.csv")
+```
+
+```{r}
+# tidy data
+birthweight =
+  birthweight |> 
+  janitor::clean_names() |> 
+  mutate(
+    babysex = factor(babysex, 
+                     levels = c(1, 2), labels = c("Male", "Female")),
+    frace = factor(frace, 
+                   levels = c(1, 2, 3, 4, 8, 9), labels = c("White", "Black", "Asian", "Puerto Rican", "Other", "Unknown")),
+    mrace = factor(mrace, 
+                   levels = c(1, 2, 3, 4, 8), labels = c("White", "Black", "Asian", "Puerto Rican", "Other")),
+    malform = factor(malform, 
+                     levels = c(0, 1), labels = c("absent", "present"))
+  ) |> 
+   drop_na()
+
+summary(birthweight)
+
+```
+
+
+```{r}
+# Propose a regression model for birthweight
+model1 = lm(bwt ~ blength + gaweeks + fincome +
+              malform + momage + mheight + smoken, data = birthweight)
+```
+
+
+Description of modeling process: Based on the selected predictors, I built a regression model to predict birthweight (`bwt`). I included birth length (`blength`) and gestational age (`gaweeks`) because they are strongly correlated with birthweight, as larger babies tend to have greater length and longer gestational periods. Family income (`fincome`) was included as it can influence maternal nutrition and access to healthcare, which in turn affects fetal growth. I also considered the presence of malformations (`malform`), as this could impact the development and birthweight of the baby. Additionally, mother's age (`momage`) and mother's height (`mheight`) were included, as they may influence fetal development and birthweight. Finally, maternal smoking (`smoken`) was included, as smoking during pregnancy is known to negatively affect fetal growth and result in lower birthweight. After fitting the model, I checked the residuals against the fitted values to ensure no severe patterns were present and that the residuals were roughly centered around zero.
+
+
+```{r}
+birthweight = birthweight |> 
+  modelr::add_predictions(model1) |> 
+  modelr::add_residuals(model1)
+
+# Make a plot of model residuals against fitted values
+ggplot(birthweight, aes(x = pred, y = resid)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, 
+             linetype = "dashed") +
+  geom_smooth(se = FALSE) +
+  labs(title = "Residuals vs Fitted: Proposed birthweight model")
+```
+
+The scatter plot shows the relationship between residuals and fitted values. Ideally, residuals should be randomly scattered with no visible pattern. This plot shows that residuals are concentrated around 0 when the fitted values are small, but they gradually increase in magnitude as the fitted values get larger, forming a funnel shape (indicating heteroscedasticity).
+
+From the plot, we can see that as the fitted values increase, the spread of the residuals also increases. This suggests that the model might suffer from heteroscedasticity. The smooth curve stays close to zero in the middle but bends  downward at the very low and very high fitted values.
+
+
+```{r}
+# model 2: Only blength and gaweeks are used to predict birth weight
+model2 = lm(bwt ~ blength + gaweeks, data = birthweight)
+
+# model 3: Build a regression model that includes interaction terms
+model3 = lm(bwt ~ bhead * blength * babysex, data = birthweight)
+```
+
+```{r}
+# comparison
+cv_results = modelr::crossv_mc(birthweight, 100) |> 
+  mutate(
+    train = purrr::map(train, as_tibble),
+    test  = purrr::map(test,  as_tibble)
+  )
+```
+
+
+```{r}
+cv_model1 = cv_results |>
+  mutate(
+    pred = map2(train, test, ~predict(lm(bwt ~ blength + gaweeks + fincome + malform + momage + mheight + smoken, data = .x), newdata = .y)),
+    error = map2_dbl(pred, test, ~sqrt(mean((.x - .y$bwt)^2))) 
+  )
+
+cv_model2 = cv_results |>
+  mutate(
+    pred2 = map2(train, test, ~predict(lm(bwt ~ blength + gaweeks, data = .x), newdata = .y)),
+    error2 = map2_dbl(pred2, test, ~sqrt(mean((.x - .y$bwt)^2)))
+  )
+
+cv_model3 = cv_results |>
+  mutate(
+    pred3 = map2(train, test, ~predict(lm(bwt ~ bhead * blength * babysex, data = .x), newdata = .y)),
+    error3 = map2_dbl(pred3, test, ~sqrt(mean((.x - .y$bwt)^2)))
+  )
+
+cv_model1$error |> mean()
+cv_model2$error2 |> mean()
+cv_model3$error3 |> mean()
+
+```
+
+Model 1 uses the following predictors: blength, gaweeks, fincome, malform, momage, mheight, and smoken to predict the bwt. The RMSE of the model is 326.1422, which is a moderate error. 
+
+Model 2 is simpler than Model 1 and uses only blength and gaweeks to predict bwt. The error term for this model is higher than Model 1, with an RMSE of 331.5341. This suggests that while the model is simpler, it might not capture as much variability in birth weight compared to the more complex model.
+
+Model 3 use interaction terms between bhead, blength, and babysex to predict bwt. The RMSE for Model 3 is the lowest at 288.3261, indicating that it provides the best fit among the three models.
