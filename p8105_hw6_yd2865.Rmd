@@ -285,13 +285,10 @@ ggplot(birthweight, aes(x = pred, y = resid)) +
   geom_point(alpha = 0.5) +
   geom_hline(yintercept = 0, 
              linetype = "dashed") +
-  geom_smooth(se = FALSE) +
   labs(title = "Residuals vs Fitted: Proposed birthweight model")
 ```
 
-The scatter plot shows the relationship between residuals and fitted values. Ideally, residuals should be randomly scattered with no visible pattern. This plot shows that residuals are concentrated around 0 when the fitted values are small, but they gradually increase in magnitude as the fitted values get larger, forming a funnel shape (indicating heteroscedasticity).
-
-From the plot, we can see that as the fitted values increase, the spread of the residuals also increases. This suggests that the model might suffer from heteroscedasticity. The smooth curve stays close to zero in the middle but bends  downward at the very low and very high fitted values.
+The scatter plot shows the relationship between residuals and fitted values. It shows that most residuals are concentrated around 0 with no strong curvature pattern. This indicates that the linear average structure is roughly reasonable for the majority of observations.
 
 
 ```{r}
